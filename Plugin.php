@@ -2,7 +2,7 @@
 
 namespace EvaluationMethodSeplag;
 
-require __DIR__ . './../vendor/autoload.php';
+require __DIR__ . '/vendor/autoload.php';
 
 use MapasCulturais\App;
 use MapasCulturais\i;
