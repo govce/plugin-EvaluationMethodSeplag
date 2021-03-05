@@ -4,12 +4,10 @@ namespace EvaluationMethodSeplag\Controllers;
 
 require __DIR__ . './../vendor/autoload.php';
 
-use Exception;
 use MapasCulturais\App;
 use MapasCulturais\i;
 use GuzzleHttp\Client;
 use MapasCulturais\Entities\RegistrationEvaluation;
-use stdClass;
 
 class Evaluate extends \MapasCulturais\Controller {
   
@@ -86,8 +84,8 @@ class Evaluate extends \MapasCulturais\Controller {
       try {
         $response = $this->search($d["value"]);
       } catch (\Exception $e) {
-        continue;
         $app->log->error("Erro de busca na API da Seplag. Inscrição ID {$d['id']}");
+        continue;
       }
       
 
