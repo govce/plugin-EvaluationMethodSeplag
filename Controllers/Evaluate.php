@@ -7,112 +7,88 @@ require __DIR__ . './../vendor/autoload.php';
 use MapasCulturais\App;
 use MapasCulturais\i;
 use GuzzleHttp\Client;
+use MapasCulturais\Entities\Registration;
+use MapasCulturais\Entity;
 use MapasCulturais\Entities\RegistrationEvaluation;
 
 class Evaluate extends \MapasCulturais\Controller {
   
+  public function __construct(){
+    $app = App::i();
+    $this->config = $app->plugins['EvaluationMethodSeplag']->config;
+  }
+
   public function POST_run() {
     set_time_limit(-1);
     
-    $app = App::i();
-    
-    $this->config = $app->plugins['EvaluationMethodSeplag']->config;
+    $app = App::i();    
 
-    $this->auth();
-        
-    if (!isset($this->token)) {
-      // Isso está feio, arrumar depois.
+    if (!$this->auth()) {      
+      $app->log->error("Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.");
       echo 'Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.';
       return;
     }
 
-    $user = $app->repo("User")->find($this->config["user_id"]);
-    $opportunity = $app->repo("Opportunity")->find($this->config["opportunity_id"]);
-
     $sql = "
       SELECT
-        reg.id, 
-        REPLACE(REPLACE(REPLACE(REPLACE(reg_me.value, '.', '' ),'/',''),'-',''), '\"', '') AS value,
-        reg_ev.id AS exists
+        r.id, 
+        REPLACE(REPLACE(REPLACE(REPLACE(am.value, '.', '' ),'/',''),'-',''), '\"', '') AS cpf,
+        re.id AS evaluation
       FROM 
-        registration reg 
-        JOIN registration_meta reg_me ON reg_me.object_id = reg.id AND reg_me.key = 'field_26519'
-        LEFT JOIN registration_evaluation reg_ev ON reg_ev.registration_id = reg.id
+        registration r 
+        LEFT JOIN agent_meta am ON am.object_id = r.agent_id AND am.key = 'documento'
+        LEFT JOIN registration_evaluation re ON re.registration_id = r.id AND user_id = {$this->config['user_id']}
       WHERE
-        reg.status = 1
-        AND reg.opportunity_id = {$this->config['opportunity_id']}
+        r.status = 1
+        AND r.opportunity_id = {$this->config['opportunity_id']}
       ";
 
-
-    if ($this->data["areReassessed"] === "1" && $this->data["formEvaluation"] === "all") {
-      // Reavaliadas (SIM) && Avaliar (TODOS)
+    // As inscrições devem ser reavaliadas? SIM
+    if ($this->data["areReassessed"] === "0" ) {
+      $sql .= "AND re.id IS NULL";
     }
 
-    if ($this->data["areReassessed"] === "1" && $this->data["formEvaluation"] === "selected") {
-      // Reavaliadas (SIM) && Avaliar (SELECIONADOS)
-      // Vou ter que pegar os que já estão em registration_evaluation e fazer o merge
+    // Quem deve ser avaliado? Somente os que estão listados abaixo
+    if ($this->data["formEvaluation"] === "selected") {
       $registrations_array = explode(";", $this->data["listSelected"]);
-      $registrations_string = implode(", ", $registrations_array); 
-      
-      $sql .= "AND reg.id IN ($registrations_string)";
-    }
-
-    if ($this->data["areReassessed"] === "0" && $this->data["formEvaluation"] === "all") {
-      // Reavaliadas (NÃO) && Avaliar (TODOS)
-      $sql .= "AND reg_ev.id IS NULL";
-    }
-    
-    if ($this->data["areReassessed"] === "0" && $this->data["formEvaluation"] === "selected") {
-      // Reavaliadas (NÃO) && Avaliar (SELECIONADOS)
-      $registrations_array = explode(";", $this->data["listSelected"]);
-      $registrations_string = implode(", ", $registrations_array); 
-
-      $sql .= "AND reg_ev.id IS NULL AND reg.id IN ($registrations_string)";
-
-      // Meter um NOT IN aqui...
+      $registrations_string = implode(", ", $registrations_array);        
+      $sql .= "AND r.id IN ($registrations_string)";
     }
 
     $sql .= ";";
 
     $stmt = $app->em->getConnection()->prepare($sql);
     $stmt->execute();
-    $data = $stmt->fetchAll();
+    $list= $stmt->fetchAll();
 
-    foreach($data as $d) {
-      $response = null;
+    foreach($list as $item) {
+      $response_SEPLAG_API = null;
   
       try {
-        $response = $this->search($d["value"]);
+        $response_SEPLAG_API = $this->search($item["cpf"]);
       } catch (\Exception $e) {
-        $app->log->error("Erro de busca na API da Seplag. Inscrição ID {$d['id']}");
+        $app->log->error("Erro de busca na API da Seplag. Inscrição ID {$item['id']}");
         continue;
-      }
-      
+      }     
+       
+      $registration = $app->repo("Registration")->find($item["id"]);
+      $user = $app->repo("User")->find($this->config["user_id"]);
 
-      $result = !isset($response) ? 10: 2;
-      $now = date('d/mY H:i:s');
-      $evaluation_data_obs = !isset($response) ? $now: "$now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
-      
-      $registration = $app->repo("Registration")->find($d["id"]);
-
-      $evaluation = new RegistrationEvaluation();
-
-      $evaluation->id = $d["exists"];
+      $evaluation_id = $item["evaluation"];
+      $evaluation = empty($evaluation_id) ? new RegistrationEvaluation() : $app->repo("RegistrationEvaluation")->find($evaluation_id) ;
       $evaluation->registration = $registration;
       $evaluation->user = $user;
-      $evaluation->result = $result;
 
-      $evaluation->evaluationData = [
-        "status" => $result,
-        "obs" => $evaluation_data_obs
-      ];
+      $date_time_now = date('d-m-Y H:i:s');
+      $evaluation_result = !isset($response_SEPLAG_API) ? 10: 2;
+      $evaluation_data_obs = !isset($response_SEPLAG_API) ? "Consultado na SEPLAG em $date_time_now": "Consultado na SEPLAG em  $date_time_now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
+     
+      $evaluation->result = $evaluation_result;      
+      $evaluation->evaluationData = ["status" => $evaluation_result, "obs" => $evaluation_data_obs];
+      $evaluation->setStatus(1);
+      $evaluation->save(true);
 
-      $evaluation->status = 1;
-
-      $app->em->persist($evaluation);
-      $app->em->flush();
-
-      $app->log->info("Avaliação realizada com sucesso! Inscrição ID {$d['id']}");
+      $app->log->info("Avaliação realizada com sucesso! Inscrição ID {$item['id']}");
     } 
 
     $app->redirect($app->createUrl('opportunity', 'single', [ $this->config["opportunity_id"] ]));
@@ -141,7 +117,7 @@ class Evaluate extends \MapasCulturais\Controller {
       ]);
     } catch (\Exception $e) {
       $this->token = null;
-      return;
+      return false;
     }
 
     $response = json_decode($response->getBody(), true);
@@ -149,6 +125,8 @@ class Evaluate extends \MapasCulturais\Controller {
     if (isset($response) && $response['sucesso']) {
       $this->token = $response['token'];
     }
+
+    return true;
   }
 
   private function search($cpf) {
