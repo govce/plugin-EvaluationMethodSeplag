@@ -25,7 +25,8 @@ class Evaluate extends \MapasCulturais\Controller {
   public function POST_run() {
     set_time_limit(-1);
     
-    $app = App::i();    
+    $app = App::i();
+    $app->disableAccessControl();
 
     if (!$this->seplagApi->authenticate()) {      
       $app->log->error("Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.");
@@ -66,6 +67,8 @@ class Evaluate extends \MapasCulturais\Controller {
     $list= $stmt->fetchAll();
 
     foreach($list as $item) {
+      sleep(1);
+      $date_time_now = date('d-m-Y H:i:s');
       $response_SEPLAG_API = null;
   
       try {
@@ -83,9 +86,8 @@ class Evaluate extends \MapasCulturais\Controller {
       $evaluation->registration = $registration;
       $evaluation->user = $user;
 
-      $date_time_now = date('d-m-Y H:i:s');
       $evaluation_result = !isset($response_SEPLAG_API) ? 10: 2;
-      $evaluation_data_obs = !isset($response_SEPLAG_API) ? "Consultado na SEPLAG em $date_time_now": "Consultado na SEPLAG em  $date_time_now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
+      $evaluation_data_obs = !isset($response_SEPLAG_API) ? "Consultado CPF {$item["cpf"]} na SEPLAG em $date_time_now": "Consultado CPF {$item["cpf"]} na SEPLAG em  $date_time_now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
      
       $evaluation->result = $evaluation_result;      
       $evaluation->evaluationData = ["status" => $evaluation_result, "obs" => $evaluation_data_obs];

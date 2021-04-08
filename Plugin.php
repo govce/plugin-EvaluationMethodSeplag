@@ -13,7 +13,8 @@ class Plugin extends \MapasCulturais\Plugin {
   
   public function __construct(array $config = [])
   {
-    $this->config["cron_sql_limit"] = isset($this->config["cron_sql_limit"]) ? $this->config["cron_sql_limit"] : 50;
+    $config["cron_sql_limit"] = isset($config["cron_sql_limit"]) ? $config["cron_sql_limit"] : 20;
+    
     parent::__construct($config);
   }
 
@@ -33,12 +34,12 @@ class Plugin extends \MapasCulturais\Plugin {
 
   function cron() {
     set_time_limit(-1);
-    
+
     $app = App::i(); 
+    $app->disableAccessControl();
+
     $seplagApi = new \EvaluationMethodSeplag\SeplagAPI($this->config);
-
-    $date_time_now = date('d-m-Y H:i:s');   
-
+    
     if (!$seplagApi->authenticate()) {      
       $app->log->error("Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.");
       echo 'Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.';
@@ -58,14 +59,15 @@ class Plugin extends \MapasCulturais\Plugin {
         r.status = 1
         AND r.opportunity_id = {$this->config['opportunity_id']}
         AND re.id IS NULL
-      LIMIT {$this->config['cron_sql_limit']};
-      ";
+      LIMIT {$this->config['cron_sql_limit']}";
 
     $stmt = $app->em->getConnection()->prepare($sql);
     $stmt->execute();
     $list= $stmt->fetchAll();
 
     foreach($list as $item) {
+      sleep(1);
+      $date_time_now = date('d-m-Y H:i:s');   
       $response_SEPLAG_API = null;
   
       try {
@@ -73,28 +75,34 @@ class Plugin extends \MapasCulturais\Plugin {
       } catch (\Exception $e) {
         $app->log->error("Erro de busca na API da Seplag. Inscrição ID {$item['id']}");
         continue;
-      }     
-       
-      $registration = $app->repo("Registration")->find($item["id"]);
-      $user = $app->repo("User")->find($this->config["user_id"]);
+      }
 
-      $evaluation_id = $item["evaluation"];
-      $evaluation = empty($evaluation_id) ? new RegistrationEvaluation() : $app->repo("RegistrationEvaluation")->find($evaluation_id) ;
-      $evaluation->registration = $registration;
-      $evaluation->user = $user;
+      try {   
+        $registration = $app->repo("Registration")->find($item["id"]);
+        $user = $app->repo("User")->find($this->config["user_id"]);
 
-      $evaluation_result = !isset($response_SEPLAG_API) ? 10: 2;
-      $evaluation_data_obs = !isset($response_SEPLAG_API) ? "Consultado na SEPLAG em $date_time_now": "Consultado na SEPLAG em  $date_time_now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
-     
-      $evaluation->result = $evaluation_result;      
-      $evaluation->evaluationData = ["status" => $evaluation_result, "obs" => $evaluation_data_obs];
-      $evaluation->setStatus(1);
-      $evaluation->save(true);
+        $evaluation_id = $item["evaluation"];
+        $evaluation = empty($evaluation_id) ? new RegistrationEvaluation() : $app->repo("RegistrationEvaluation")->find($evaluation_id) ;
+        $evaluation->registration = $registration;
+        $evaluation->user = $user;
 
+        $evaluation_result = !isset($response_SEPLAG_API) ? 10: 2;
+        $evaluation_data_obs = !isset($response_SEPLAG_API) ? "Consultado CPF {$item["cpf"]} na SEPLAG em $date_time_now": "Consultado na SEPLAG em  $date_time_now | Descumpriu o DECRETO Nº33.953, de 25 de fevereiro de 2021. ART.3 INCISO IV - Não exercerem, a qualquer título, cargo, emprego ou função pública em quaisquer das esferas de governo";
+      
+        $evaluation->result = $evaluation_result;      
+        $evaluation->evaluationData = ["status" => $evaluation_result, "obs" => $evaluation_data_obs];
+        $evaluation->setStatus(1);
+        $evaluation->save(true);
+      } catch (\Exception $e) {
+        $app->log->error("Erro em salvar no banco de dados. Inscrição ID {$item['id']}");
+        continue;
+      }
       $app->log->info("Avaliação realizada com sucesso! Inscrição ID {$item['id']}");
     } 
 
+    $date_time_now = date('d-m-Y H:i:s');  
     $app->log->info("CRON executado com sucesso! $date_time_now");
+    $app->enableAccessControl();
   }
 
   public function register() {
