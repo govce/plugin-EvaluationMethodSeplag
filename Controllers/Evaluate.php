@@ -12,10 +12,14 @@ use MapasCulturais\Entity;
 use MapasCulturais\Entities\RegistrationEvaluation;
 
 class Evaluate extends \MapasCulturais\Controller {
+
+  private $seplagApi;
+  private $config;
   
   public function __construct(){
     $app = App::i();
     $this->config = $app->plugins['EvaluationMethodSeplag']->config;
+    $this->seplagApi = new \EvaluationMethodSeplag\SeplagAPI($this->config);
   }
 
   public function POST_run() {
@@ -23,7 +27,7 @@ class Evaluate extends \MapasCulturais\Controller {
     
     $app = App::i();    
 
-    if (!$this->auth()) {      
+    if (!$this->seplagApi->authenticate()) {      
       $app->log->error("Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.");
       echo 'Erro ao se autenticar com a SEPLAG!. Informe aos desenvolvedores.';
       return;
@@ -65,7 +69,7 @@ class Evaluate extends \MapasCulturais\Controller {
       $response_SEPLAG_API = null;
   
       try {
-        $response_SEPLAG_API = $this->search($item["cpf"]);
+        $response_SEPLAG_API = $this->seplagApi->searchEmployeeByCPF($item["cpf"]);
       } catch (\Exception $e) {
         $app->log->error("Erro de busca na API da Seplag. Inscrição ID {$item['id']}");
         continue;
@@ -94,60 +98,4 @@ class Evaluate extends \MapasCulturais\Controller {
     $app->redirect($app->createUrl('opportunity', 'single', [ $this->config["opportunity_id"] ]));
   }
 
- 
-
-  /**
-   * 
-   */
-  private function auth() {
-    $client = new Client();
-    
-    $api = $this->config['api_seplag']['auth'];
-
-    $bodyJson = json_encode([
-      'cpf' => $api["keys"]["cpf"],
-      'password' => $api["keys"]["password"],
-      'idSistema' => $api["keys"]["idSistema"]
-    ]);
-
-    try {
-      $response = $client->post($api['URL'], [
-        'headers' => ['Content-Type' => 'application/json', 'Accept' => 'application/json'],
-        'body'    => $bodyJson
-      ]);
-    } catch (\Exception $e) {
-      $this->token = null;
-      return false;
-    }
-
-    $response = json_decode($response->getBody(), true);
-
-    if (isset($response) && $response['sucesso']) {
-      $this->token = $response['token'];
-    }
-
-    return true;
-  }
-
-  private function search($cpf) {
-    $client = new Client([
-      'verify' => false
-    ]);
-
-    $api = $this->config['api_seplag']['search'];
-
-    try {
-      $response = $client->request($api['method'], "{$api['URL']}?numeroDocumento=$cpf", [
-        'headers' => [
-          'Content-Type' => 'application/json', 
-          'Accept' => 'application/json',
-          'Authorization' => "Bearer {$this->token}"
-        ]
-      ]);
-    } catch (\Exception $e) {
-      throw $e;
-    }
-
-    return json_decode($response->getBody(), true);
-  }
 }
