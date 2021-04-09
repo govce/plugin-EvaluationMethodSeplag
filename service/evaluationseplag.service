@@ -1,0 +1,13 @@
+[Unit]
+Description=Evaluation Seplag
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/mapas/mapasculturais/src/protected/application/plugins/EvaluationMethodSeplag/scripts
+User=mapas
+Restart=always
+RestartSec=5
+ExecStart=/srv/mapas/mapasculturais/src/protected/application/plugins/EvaluationMethodSeplag/scripts/evaluationseplagcron.sh
+
+[Install]
+WantedBy=multi-user.target
